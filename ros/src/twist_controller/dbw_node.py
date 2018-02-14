@@ -54,26 +54,21 @@ class DBWNode(object):
                                         ThrottleCmd, queue_size=2)
         self.brake_pub = rospy.Publisher('/vehicle/brake_cmd',
                                         BrakeCmd, queue_size=2)
+        # Velocity PID parameters
+        velocity_kp = 0.2
+        velocity_ki = 0.0
+        velocity_kd = 0.1
 
-        # Steering filter parameters
-        steering_tau = 0.1
-
-        # Throttle PID parameters
-        throttle_kp = 0.35
-        throttle_ki = 0.005
-        throttle_kd = 5.0
-
-        # Brake PID parameters
-        brake_kp = 0.05
-        brake_ki = 0.0
-        brake_kd = 5.0
+        # Steering PID parameters
+        steer_kp = 1.0
+        steer_ki = 0.0
+        steer_kd = 0.0
 
         # Create `Controller` object
         self.controller = Controller(vehicle_mass, fuel_capacity, brake_deadband, decel_limit, accel_limit, 
                                             wheel_radius, wheel_base, steer_ratio, max_lat_accel, max_steer_angle,
-                                            throttle_kp, throttle_ki, throttle_kd,
-                                            brake_kp, brake_ki, brake_kd,
-                                            steering_tau, DBW_NODE_RATE)
+                                            velocity_kp, velocity_ki, velocity_kd,
+                                            steer_kp, steer_ki, steer_kd)
 
         # Subscribe to all the topics you need to
         rospy.Subscriber('/dbw_enabled', Bool, self.callback_dbw, queue_size=2)
@@ -84,6 +79,7 @@ class DBWNode(object):
         self.dbw_enabled        = True
         self.current_velocity   = None
         self.twist_cmd          = None
+        self.prev_time          = None
 
         self.loop()
 
@@ -93,10 +89,20 @@ class DBWNode(object):
             if self.twist_cmd is None or self.current_velocity is None:
                 # Not fully initialized
                 continue
+            if self.prev_time is None:
+                self.prev_time = rospy.get_rostime()
+                continue
+
+            curr_time = rospy.get_rostime()
+            delta_time = curr_time - self.prev_time
+            dt = delta_time.secs + (1e-9 * delta_time.nsecs)
+
             throttle, brake, steering = self.controller.control(    self.twist_cmd.twist.linear,
                                                                     self.twist_cmd.twist.angular,
                                                                     self.current_velocity.twist.linear,
-                                                                    self.dbw_enabled)
+                                                                    self.dbw_enabled,
+                                                                    dt)
+            self.prev_time = curr_time
             
             if self.dbw_enabled:
                 self.publish(throttle, brake, steering)    
