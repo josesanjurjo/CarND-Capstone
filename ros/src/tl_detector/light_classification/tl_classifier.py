@@ -112,7 +112,7 @@ class TLClassifier(object):
 
         try:
             # SSD to get TL bounding boxes and clasification confidence scores
-            min_score = 0.1
+            min_score = 0.25
             tl_boxes  = self.get_bboxes(image, min_score) 
 
             # classify all traffic lights
