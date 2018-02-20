@@ -120,7 +120,6 @@ class WaypointUpdater(object):
 
         stop_is_close = self.is_stop_close(base_waypoint_idx)
         if stop_is_close:
-            rospy.loginfo("WaypointUpdater: stop_is_close")
             for i, waypoint in enumerate(next_waypoints):
                 waypoint.twist.twist.linear.x = self.brake(
                     base_waypoint_idx + i)
