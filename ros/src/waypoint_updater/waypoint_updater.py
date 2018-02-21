@@ -122,7 +122,7 @@ class WaypointUpdater(object):
         if stop_is_close:
             for i, waypoint in enumerate(next_waypoints):
                 waypoint.twist.twist.linear.x = self.brake(
-                    base_waypoint_idx + i)
+                    (base_waypoint_idx + i) % len(self.base_waypoints))
 
         lane = Lane()
         lane.header.frame_id = self.frame_id
