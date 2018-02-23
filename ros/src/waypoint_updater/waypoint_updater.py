@@ -6,6 +6,7 @@ from geometry_msgs.msg import PoseStamped, TwistStamped
 from styx_msgs.msg import Lane, Waypoint
 import tf
 import math
+import itertools
 import time
 import copy
 
@@ -27,10 +28,23 @@ TODO (for Yousuf and Aaron): Stopline location for each traffic light.
 LOOKAHEAD_WPS = 150  # Number of waypoints we will publish. You can change this number
 SLOWDOWN = 0.2
 PUBLISHING_RATE = 20  # per second
+RECALCULATE_STEPS = 200  # Number of steps to do a full position calculation
 
 
 class WaypointUpdater(object):
     def __init__(self):
+        self.current_pose = None
+        self.base_waypoints = None
+        self.velocity = 0.
+        self.stop_wp = -1
+        self.car_yaw = None
+        self.nearest_waypoint_idx = None
+
+        _counter = itertools.count(1)
+        self.recalculate_idx = lambda: (next(_counter) % RECALCULATE_STEPS == 0)
+
+        self.stop_m = rospy.get_param('~stop_m', 16.)  # m ahead of stop line for the car to stop
+
         rospy.init_node('waypoint_updater')
 
         self.base_waypoints_sub = rospy.Subscriber('/base_waypoints', Lane, self.waypoints_cb)
@@ -40,17 +54,7 @@ class WaypointUpdater(object):
         rospy.Subscriber('/obstacle_waypoint', Int32, self.obstacle_cb)
 
         self.final_waypoints_pub = rospy.Publisher('final_waypoints', Lane, queue_size=1)
-
-        # TODO: Add other member variables you need below
-
-        self.current_pose = None
-        self.base_waypoints = None
-        self.velocity = 0.
-        self.stop_wp = -1
-        self.car_yaw = None
-        self.nearest_waypoint_idx = None
-
-        self.stop_m = rospy.get_param('~stop_m', 16.)  # m ahead of stop line for the car to stop
+        self.nearest_waypoint_pub = rospy.Publisher('nearest_waypoint', Int32, queue_size=1)
 
         rate = rospy.Rate(PUBLISHING_RATE)
         while not rospy.is_shutdown():
@@ -101,22 +105,20 @@ class WaypointUpdater(object):
     def update(self):
         """ Updates the waypoints and publishes them to /final_waypoints
         """
-        required = (
-            self.current_pose,
-            self.base_waypoints
-        )
-        if any(x is None for x in required):
+        if not self.current_pose or not self.base_waypoints:
             return
 
         self.nearest_waypoint_idx = self.nearest_waypoint()
         base_waypoint_idx = self.nearest_waypoint_idx
+        self.nearest_waypoint_pub.publish(base_waypoint_idx)
+
         self.restore_base_velocities(base_waypoint_idx)
 
-        next_waypoints = self.base_waypoints[
-                         base_waypoint_idx:base_waypoint_idx + LOOKAHEAD_WPS]
         # Wrap around the list, since the car may be towards the end of the list
-        next_waypoints.extend(
-            self.base_waypoints[0:LOOKAHEAD_WPS - len(next_waypoints)])
+        next_waypoints = [
+            self.base_waypoints[i % len(self.base_waypoints)]
+            for i in range(base_waypoint_idx, base_waypoint_idx + LOOKAHEAD_WPS)
+        ]
 
         stop_is_close = self.is_stop_close(base_waypoint_idx)
         if stop_is_close:
@@ -131,9 +133,11 @@ class WaypointUpdater(object):
         self.final_waypoints_pub.publish(lane)
 
     def restore_base_velocities(self, base_waypoint_idx):
-        _slice = slice(base_waypoint_idx, base_waypoint_idx + LOOKAHEAD_WPS)
-        for (wp, v) in zip(self.base_waypoints[_slice],
-                           self.base_waypoint_velocities[_slice]):
+        # Wrap around the list, since the car may be towards the end of the list
+        for i in range(base_waypoint_idx, base_waypoint_idx + LOOKAHEAD_WPS):
+            idx = i % len(self.base_waypoints)
+            wp = self.base_waypoints[idx]
+            v = self.base_waypoint_velocities[idx]
             wp.twist.twist.linear.x = v
 
     def is_stop_close(self, base_waypoint_idx):
@@ -169,10 +173,15 @@ class WaypointUpdater(object):
         position = self.current_pose.position
         nearest_d = float('inf')
         nearest_idx = None
+        search_wp = 20
 
-        if self.nearest_waypoint_idx:
+        if self.nearest_waypoint_idx is not None and not self.recalculate_idx():
             _wp = self.nearest_waypoint_idx
-            enum = enumerate(2 * self.base_waypoints[_wp:_wp + 20], _wp)
+            search_list = [  # Wraps around the end of base_waypoints
+                self.base_waypoints[i % len(self.base_waypoints)]
+                for i in range(_wp, _wp + search_wp)
+            ]
+            enum = enumerate(search_list, _wp)
         else:
             enum = enumerate(self.base_waypoints)
 
