@@ -177,11 +177,10 @@ class WaypointUpdater(object):
 
         if self.nearest_waypoint_idx is not None and not self.recalculate_idx():
             _wp = self.nearest_waypoint_idx
-            search_list = [  # Wraps around the end of base_waypoints
-                self.base_waypoints[i % len(self.base_waypoints)]
+            enum = (  # Wraps around the end of base_waypoints
+                (i % len(self.base_waypoints), self.base_waypoints[i % len(self.base_waypoints)])
                 for i in range(_wp, _wp + search_wp)
-            ]
-            enum = enumerate(search_list, _wp)
+            )
         else:
             enum = enumerate(self.base_waypoints)
 
